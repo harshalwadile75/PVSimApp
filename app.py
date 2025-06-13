@@ -1,6 +1,9 @@
 import streamlit as st
 from utils.weather import fetch_pvgis_tmy
 from utils.simulation import simulate_energy_output
+from utils.financials import calculate_financials
+from utils.report import export_to_csv, export_to_pdf
+
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -8,7 +11,7 @@ st.set_page_config(page_title="PVSimApp - Phase 1", layout="centered")
 st.title("🔆 PVSimApp - Basic PV Simulation")
 
 # Sidebar Inputs
-st.sidebar.header("Location & System Settings")
+st.sidebar.header("📍 Location & System Settings")
 latitude = st.sidebar.number_input("Latitude", value=40.7128)
 longitude = st.sidebar.number_input("Longitude", value=-74.0060)
 system_size_kw = st.sidebar.number_input("System Size (kW)", value=5.0)
@@ -38,15 +41,11 @@ if st.sidebar.button("Run Simulation"):
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-    else:
-        st.error("Failed to fetch weather data. Please try a different location.")
-
         st.subheader("📁 Export Results")
 
         csv_file = "monthly_energy.csv"
         pdf_file = "monthly_energy.pdf"
 
-        from utils.report import export_to_csv, export_to_pdf
         export_to_csv(monthly_energy, csv_file)
         export_to_pdf(monthly_energy, pdf_file)
 
@@ -61,11 +60,11 @@ if st.sidebar.button("Run Simulation"):
         cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
         energy_price = st.number_input("Energy Price ($/kWh)", value=0.12)
 
-        from utils.financials import calculate_financials
         results = calculate_financials(system_size_kw, cost_per_kw, energy_price, monthly_energy)
 
         st.write("### Financial Summary")
         for key, value in results.items():
             st.write(f"**{key}**: ${value:,.2f}" if "($)" in key else f"**{key}**: {value:,.2f}")
 
-
+    else:
+        st.error("Failed to fetch weather data. Please try a different location.")
