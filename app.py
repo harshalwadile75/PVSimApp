@@ -6,13 +6,14 @@ from utils.report import export_to_csv, export_to_pdf
 from utils.optimizer import optimize_tilt_azimuth
 from utils.curves import plot_iv_pv_curves
 from utils.panond_parser import parse_pan_file, parse_ond_file
+from utils.project_config import save_config, load_config
 
 import pandas as pd
 import matplotlib.pyplot as plt
 from streamlit_folium import st_folium
 import folium
 
-st.set_page_config(page_title="PVSimApp - PAN Support", layout="centered")
+st.set_page_config(page_title="PVSimApp - Save/Load", layout="centered")
 st.title("🔆 PVSimApp - PV Simulation Tool")
 
 modules_df = pd.read_csv("modules.csv")
@@ -103,6 +104,41 @@ shading_loss = st.sidebar.slider("Shading Loss (%)", 0, 20, preset["shading"])
 wiring_loss = st.sidebar.slider("Wiring Loss (%)", 0, 5, 2)
 inverter_loss = st.sidebar.slider("Inverter Loss (%)", 0, 5, 2)
 
+# 💾 Save / Load Project Config
+st.sidebar.subheader("💾 Save / Load Project")
+load_file = st.sidebar.file_uploader("Load Configuration", type=["json"])
+if load_file:
+    loaded = load_config(load_file)
+    st.session_state["latitude"] = loaded.get("latitude", latitude)
+    st.session_state["longitude"] = loaded.get("longitude", longitude)
+    st.session_state["tilt"] = loaded.get("tilt", 30)
+    st.session_state["azimuth"] = loaded.get("azimuth", 180)
+    st.session_state["module"] = loaded.get("module", module_choice)
+    st.session_state["inverter"] = loaded.get("inverter", inverter_choice)
+    st.session_state["num_modules"] = loaded.get("num_modules", num_modules)
+    st.session_state["losses"] = loaded.get("losses", {})
+    st.success("Configuration loaded! Please re-select options manually to refresh UI.")
+
+config_data = {
+    "latitude": latitude,
+    "longitude": longitude,
+    "tilt": tilt,
+    "azimuth": azimuth,
+    "module": module_choice,
+    "inverter": inverter_choice,
+    "num_modules": num_modules,
+    "losses": {
+        "soiling": soiling_loss,
+        "shading": shading_loss,
+        "wiring": wiring_loss,
+        "inverter": inverter_loss
+    }
+}
+if st.sidebar.button("📥 Save Configuration"):
+    config_filename = save_config(config_data)
+    with open(config_filename, "rb") as f:
+        st.download_button("Download Config JSON", f, file_name=config_filename, mime="application/json")
+
 # Run Simulation
 if st.sidebar.button("Run Simulation"):
     st.info("Fetching weather data...")
@@ -119,8 +155,8 @@ if st.sidebar.button("Run Simulation"):
             weather_df, latitude, longitude, tilt, azimuth, system_size_kw
         )
 
-        loss_pct = (soiling_loss + shading_loss + wiring_loss + inverter_loss) / 100.0
-        monthly_energy["Energy (kWh)"] *= (1 - loss_pct)
+        total_loss = (soiling_loss + shading_loss + wiring_loss + inverter_loss) / 100.0
+        monthly_energy["Energy (kWh)"] *= (1 - total_loss)
 
         st.subheader("📊 Monthly Energy Output")
         st.dataframe(monthly_energy)
@@ -135,17 +171,14 @@ if st.sidebar.button("Run Simulation"):
         st.subheader("📁 Export Results")
         export_to_csv(monthly_energy, "monthly_energy.csv")
         export_to_pdf(monthly_energy, "monthly_energy.pdf")
-
         with open("monthly_energy.csv", "rb") as f:
             st.download_button("Download CSV", f, file_name="monthly_energy.csv")
-
         with open("monthly_energy.pdf", "rb") as f:
             st.download_button("Download PDF", f, file_name="monthly_energy.pdf")
 
-        st.subheader("💰 Financial Analysis")
+        st.subheader("💰 Financial Summary")
         cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
         energy_price = st.number_input("Electricity Rate ($/kWh)", value=0.12)
-
         results = calculate_financials(system_size_kw, cost_per_kw, energy_price, monthly_energy)
         for k, v in results.items():
             st.write(f"**{k}**: ${v:,.2f}" if "($)" in k else f"**{k}**: {v:,.2f}")
@@ -154,6 +187,5 @@ if st.sidebar.button("Run Simulation"):
         fig_iv, fig_pv = plot_iv_pv_curves(vmp, imp, voc, isc)
         st.pyplot(fig_iv)
         st.pyplot(fig_pv)
-
     else:
         st.error("Failed to fetch weather data.")
