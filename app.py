@@ -28,11 +28,9 @@ st.title("🔆 PVSimApp – Smart Solar Simulation (Phase 6)")
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
 
-# Default session state
 if 'bom_b_data' not in st.session_state:
     st.session_state['bom_b_data'] = None
 
-# Sidebar: Location Picker
 st.sidebar.header("🌍 Select Location")
 default_coords = [40.7128, -74.0060]
 m = folium.Map(location=default_coords, zoom_start=4)
@@ -40,10 +38,9 @@ marker = folium.Marker(location=default_coords, draggable=True)
 marker.add_to(m)
 map_data = st_folium(m, height=300, returned_objects=["last_clicked"])
 latitude = map_data["last_clicked"]["lat"] if map_data["last_clicked"] else default_coords[0]
-longitude = map_data["last_clicked"]["lng"] if map_data["last_clicked"] else default_coords[1]
+longitude = map_data["last_clicked"]["lng"] if map_data["last_clicked"]["lng"] else default_coords[1]
 st.sidebar.markdown(f"**Latitude**: `{latitude:.4f}`, **Longitude**: `{longitude:.4f}`")
 
-# Orientation
 st.sidebar.subheader("📐 Orientation")
 optimize = st.sidebar.checkbox("Auto Optimize Tilt/Azimuth", value=False)
 if not optimize:
@@ -52,7 +49,6 @@ if not optimize:
 else:
     tilt = azimuth = None
 
-# Module & Inverter selection
 st.sidebar.subheader("⚡ PV Module")
 module_choice = st.sidebar.selectbox("Select Module", modules_df["Model"])
 selected_module = modules_df[modules_df["Model"] == module_choice].iloc[0]
@@ -62,13 +58,11 @@ st.sidebar.subheader("🔌 Inverter")
 inverter_choice = st.sidebar.selectbox("Select Inverter", inverters_df["Model"])
 selected_inverter = inverters_df[inverters_df["Model"] == inverter_choice].iloc[0]
 
-# Encapsulant & BOM
 st.sidebar.subheader("📦 Encapsulant")
 encapsulant = st.sidebar.selectbox("Encapsulant Type", ["EVA", "POE"])
 num_modules = st.sidebar.number_input("Number of Modules", min_value=1, value=12)
 system_kw = (module_power * num_modules) / 1000
 
-# Losses
 st.sidebar.subheader("⚙️ Loss Factors")
 loss_dict = {
     "Soiling": st.sidebar.slider("Soiling (%)", 0, 10, 2),
@@ -77,7 +71,6 @@ loss_dict = {
     "Inverter": st.sidebar.slider("Inverter (%)", 0, 5, 2)
 }
 
-# Run Simulation
 if st.sidebar.button("Run Simulation"):
     weather = fetch_pvgis_tmy(latitude, longitude)
     if isinstance(weather, pd.DataFrame):
@@ -154,7 +147,6 @@ if st.sidebar.button("Run Simulation"):
             with open(pdf_filename, "rb") as f:
                 st.download_button("📥 Download PDF Report", f, file_name=pdf_filename)
 
-# Optional BOM B Setup (to simulate comparison)
 if st.sidebar.button("Set Current as BOM B"):
     st.session_state['bom_b_data'] = {
         "config": {
