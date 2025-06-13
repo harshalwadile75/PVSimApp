@@ -20,6 +20,7 @@ from utils.failure_predictor import predict_failure_modes
 from utils.test_recommender import recommend_tests
 from utils.ai_recommender import recommend_bom
 from utils.risk_scorer import compute_risk_score
+from utils.report_generator import generate_pdf_report
 
 st.set_page_config(page_title="PVSimApp - Phase 5", layout="centered")
 st.title("🔆 PVSimApp – Smart Solar Simulation (Phase 5)")
@@ -190,9 +191,37 @@ if st.sidebar.button("Run Simulation"):
     rate = st.number_input("Electricity Rate ($/kWh)", value=0.12)
     fin = calculate_financials(system_kw, cost_per_kw, rate, monthly_df)
     for k, v in fin.items():
-        st.write(f"**{k}**: ${v:,.2f}" if "($)" in k else f"**{k}**: {v:,.2f}")
+        st.write(f"**{k}**: ${v:,.2f}" if "($)" in k else f"**{k}**: {v:.2f}")
 
     st.subheader("📁 Export")
     export_to_csv(monthly_df, "monthly_energy.csv")
     with open("monthly_energy.csv", "rb") as f:
         st.download_button("Download CSV", f, file_name="monthly_energy.csv")
+
+    if st.button("📄 Export PDF Report"):
+        report_config = {
+            "Latitude": latitude,
+            "Longitude": longitude,
+            "Tilt": tilt,
+            "Azimuth": azimuth,
+            "Module": module_choice,
+            "Inverter": inverter_choice,
+            "Encapsulant": encapsulant,
+            "System Size (kW)": f"{system_kw:.2f}"
+        }
+
+        pdf_filename = "PVSim_Report.pdf"
+        generate_pdf_report(
+            filename=pdf_filename,
+            config=report_config,
+            monthly_df=monthly_df,
+            deg_rate=deg_rate,
+            risk_score=risk_score,
+            risk_label=risk_rating,
+            failures=failures,
+            test_plan=test_plan,
+            financials=fin
+        )
+
+        with open(pdf_filename, "rb") as f:
+            st.download_button("📥 Download PDF Report", f, file_name=pdf_filename)
