@@ -1,6 +1,7 @@
 from fpdf import FPDF
 import matplotlib.pyplot as plt
 import os
+import pandas as pd
 
 class PDFReport(FPDF):
     def header(self):
@@ -23,7 +24,7 @@ class PDFReport(FPDF):
         self.image(path, w=w)
         self.ln(5)
 
-def generate_pdf_report(filename, config, monthly_df, deg_rate, risk_score, risk_label, failures, test_plan, financials):
+def generate_pdf_report(filename, config, monthly_df, deg_rate, risk_score, risk_label, failures, test_plan, financials, bom_b=None):
     pdf = PDFReport()
     pdf.add_page()
 
@@ -35,7 +36,7 @@ def generate_pdf_report(filename, config, monthly_df, deg_rate, risk_score, risk
     for idx, row in monthly_df.iterrows():
         pdf.add_text(f"{row['Month']}: {row['Energy (kWh)']:.2f}")
 
-    # Save and embed loss chart
+    # Save and embed energy chart
     fig1 = plt.figure()
     monthly_df.plot(x='Month', y='Energy (kWh)', kind='bar', legend=False, ax=plt.gca())
     plt.title('Monthly Energy Output')
@@ -61,5 +62,34 @@ def generate_pdf_report(filename, config, monthly_df, deg_rate, risk_score, risk
     for k, v in financials.items():
         pdf.add_text(f"{k}: ${v:,.2f}" if "($)" in k else f"{k}: {v:.2f}")
 
+    # BOM B Comparison (Optional)
+    if bom_b:
+        pdf.add_page()
+        pdf.add_section("🔀 BOM A vs BOM B Comparison")
+        for key in ["Module", "Inverter", "Encapsulant", "System Size (kW)"]:
+            val_a = config.get(key, "-")
+            val_b = bom_b["config"].get(key, "-")
+            pdf.add_text(f"{key} → A: {val_a} | B: {val_b}")
+
+        pdf.add_text(f"Energy → A: {monthly_df['Energy (kWh)'].sum():.2f} kWh | B: {bom_b['monthly_df']['Energy (kWh)'].sum():.2f} kWh")
+        pdf.add_text(f"Degradation → A: {deg_rate:.2f}% | B: {bom_b['deg_rate']:.2f}%")
+        pdf.add_text(f"Risk → A: {risk_score} ({risk_label}) | B: {bom_b['risk_score']} ({bom_b['risk_label']})")
+
+        # Chart comparing BOM A vs B energy
+        comp_df = pd.DataFrame({
+            'Month': monthly_df['Month'],
+            'BOM A': monthly_df['Energy (kWh)'],
+            'BOM B': bom_b['monthly_df']['Energy (kWh)']
+        })
+        fig2 = plt.figure()
+        comp_df.set_index("Month").plot(kind="bar", ax=plt.gca())
+        plt.title("BOM A vs BOM B - Energy Output")
+        fig2.savefig("compare_chart.png")
+        pdf.add_image("compare_chart.png")
+        plt.close(fig2)
+
     pdf.output(filename)
-    os.remove("energy_chart.png")
+    if os.path.exists("energy_chart.png"):
+        os.remove("energy_chart.png")
+    if os.path.exists("compare_chart.png"):
+        os.remove("compare_chart.png")
