@@ -2,6 +2,9 @@ import numpy as np
 from utils.simulation import simulate_energy_output
 
 def optimize_tilt_azimuth(weather_df, lat, lon, system_size_kw):
+    """
+    Try combinations of tilt and azimuth, return the best-performing pair.
+    """
     best_energy = 0
     best_tilt = 0
     best_azimuth = 180
