@@ -1,10 +1,7 @@
 streamlit
-pvlib
 pandas
 matplotlib
-plotly
 fpdf
-openpyxl
-requests
-streamlit-folium
 folium
+streamlit-folium
+reportlab
