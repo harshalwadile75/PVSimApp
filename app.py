@@ -7,6 +7,8 @@ from utils.optimizer import optimize_tilt_azimuth
 
 import pandas as pd
 import matplotlib.pyplot as plt
+from streamlit_folium import st_folium
+import folium
 
 st.set_page_config(page_title="PVSimApp - Phase 2", layout="centered")
 st.title("🔆 PVSimApp - PV Simulation Tool")
@@ -15,12 +17,21 @@ st.title("🔆 PVSimApp - PV Simulation Tool")
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
 
-# Sidebar Inputs
-st.sidebar.header("📍 Location & System Settings")
-latitude = st.sidebar.number_input("Latitude", value=40.7128)
-longitude = st.sidebar.number_input("Longitude", value=-74.0060)
+# Map Picker for Location
+st.sidebar.header("🌍 Select Location on Map")
+default_coords = [40.7128, -74.0060]  # NYC as default
+m = folium.Map(location=default_coords, zoom_start=4)
+marker = folium.Marker(location=default_coords, draggable=True)
+marker.add_to(m)
 
-# Panel Orientation - Tilt/Azimuth
+map_data = st_folium(m, height=300, returned_objects=["last_clicked"])
+latitude = map_data["last_clicked"]["lat"] if map_data["last_clicked"] else default_coords[0]
+longitude = map_data["last_clicked"]["lng"] if map_data["last_clicked"] else default_coords[1]
+
+st.sidebar.markdown(f"**Selected Latitude**: `{latitude:.4f}`")
+st.sidebar.markdown(f"**Selected Longitude**: `{longitude:.4f}`")
+
+# Tilt/Azimuth (Manual or Optimized)
 st.sidebar.subheader("📐 Panel Orientation")
 optimize = st.sidebar.checkbox("Auto-optimize Tilt & Azimuth", value=False)
 
