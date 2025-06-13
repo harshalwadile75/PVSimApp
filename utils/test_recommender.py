@@ -1,41 +1,45 @@
-def recommend_tests(weather_df, encapsulant="EVA"):
+def recommend_tests(weather_df, encapsulant):
     avg_temp = weather_df["T2m"].mean()
-    max_temp = weather_df["T2m"].max()
-    high_uv_days = (weather_df["G(i)"] > 900).sum()
-    high_humidity_days = (weather_df["RH"] > 75).sum()
+    avg_rh = weather_df["RH"].mean() if "RH" in weather_df.columns else 60
+    avg_irr = weather_df["G(h)"].mean() if "G(h)" in weather_df.columns else 5.5
 
-    dh_hours = 1000  # base
-    uv_hrs = 300     # base
-    tc_cycles = 200  # base
+    # --- DH Logic ---
+    dh_hours = 1000
+    if avg_temp > 30 and avg_rh > 70:
+        dh_hours = 2000
+    elif avg_temp < 20:
+        dh_hours = 800
 
-    if avg_temp > 35 or max_temp > 55:
-        dh_hours += 500
-        tc_cycles += 100
+    # --- UV Logic ---
+    uv_exposure = 15
+    if avg_irr > 6:
+        uv_exposure = 30
+    elif avg_irr < 4:
+        uv_exposure = 10
 
-    if high_uv_days > 50:
-        uv_hrs += 200
+    # --- TC Logic ---
+    tc_cycles = 200
+    if avg_temp > 30:
+        tc_cycles = 300
+    elif avg_temp < 15:
+        tc_cycles = 250
 
-    if high_humidity_days > 60:
-        dh_hours += 500
-
+    # Encapsulant modifier
     if encapsulant == "POE":
-        dh_hours = int(dh_hours * 0.8)  # POE is more resistant
-        uv_hrs = int(uv_hrs * 0.9)
+        dh_hours += 200
+        uv_exposure += 5
 
-    summary = {
-        "Recommended Damp Heat (hrs)": dh_hours,
-        "Recommended UV Exposure (hrs)": uv_hrs,
-        "Recommended Thermal Cycles": tc_cycles
+    test_plan = {
+        "Damp Heat (hours)": dh_hours,
+        "UV Exposure (kWh/m²)": uv_exposure,
+        "Thermal Cycles": tc_cycles
     }
 
-    rationale = []
-    if dh_hours > 1000:
-        rationale.append("🔴 High humidity/temp region — extended DH test suggested.")
-    if uv_hrs > 300:
-        rationale.append("🔆 High UV region — increased UV stress test advised.")
-    if tc_cycles > 200:
-        rationale.append("🌡️ High temperature fluctuation — extra TC cycles beneficial.")
-    if encapsulant == "POE":
-        rationale.append("✅ POE reduces DH/UV test need slightly.")
+    rationale = [
+        f"Location Avg Temp = {avg_temp:.1f} °C",
+        f"Avg Humidity = {avg_rh:.1f}%",
+        f"Avg Irradiance = {avg_irr:.1f} kWh/m²/day",
+        f"Encapsulant = {encapsulant}"
+    ]
 
-    return summary, rationale
+    return test_plan, rationale
