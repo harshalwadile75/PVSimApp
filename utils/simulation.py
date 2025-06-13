@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import pvlib
 from pvlib.temperature import sapm_cell
 from pvlib.pvsystem import PVSystem
@@ -15,21 +14,22 @@ def simulate_energy_output(weather_df, lat, lon, tilt, azimuth, system_size_kw):
     # Parse datetime from weather
     weather_df['time'] = pd.to_datetime(weather_df[['Year', 'Month', 'Day', 'Hour']])
     weather_df.set_index('time', inplace=True)
-    
+
     # Required weather inputs
     weather = weather_df.rename(columns={
-        'G(i)': 'ghi', 
-        'Gb(i)': 'dni', 
-        'Gd(i)': 'dhi', 
-        'T2m': 'temp_air', 
+        'G(i)': 'ghi',
+        'Gb(i)': 'dni',
+        'Gd(i)': 'dhi',
+        'T2m': 'temp_air',
         'WS10m': 'wind_speed'
     })[['ghi', 'dni', 'dhi', 'temp_air', 'wind_speed']]
 
-    # Define PV system
+    # Define PV system with basic parameters
     module_parameters = {
         'pdc0': system_size_kw * 1000,  # W
-        'gamma_pdc': -0.004  # 1/°C
+        'gamma_pdc': -0.004  # 1/°C - default temp coefficient
     }
+
     temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['open_rack_glass_glass']
 
     pv_system = PVSystem(
@@ -42,7 +42,7 @@ def simulate_energy_output(weather_df, lat, lon, tilt, azimuth, system_size_kw):
     # Define location
     location = Location(lat, lon, tz='UTC')
 
-    # Model chain
+    # Run simulation
     mc = ModelChain(pv_system, location, aoi_model='physical', spectral_model='no_loss')
     mc.run_model(weather)
 
@@ -54,4 +54,3 @@ def simulate_energy_output(weather_df, lat, lon, tilt, azimuth, system_size_kw):
     monthly_energy.index = monthly_energy.index.strftime('%B')
 
     return monthly_energy, weather
-
