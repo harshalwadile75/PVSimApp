@@ -40,3 +40,19 @@ if st.sidebar.button("Run Simulation"):
 
     else:
         st.error("Failed to fetch weather data. Please try a different location.")
+
+        st.subheader("📁 Export Results")
+
+        csv_file = "monthly_energy.csv"
+        pdf_file = "monthly_energy.pdf"
+
+        from utils.report import export_to_csv, export_to_pdf
+        export_to_csv(monthly_energy, csv_file)
+        export_to_pdf(monthly_energy, pdf_file)
+
+        with open(csv_file, "rb") as f:
+            st.download_button("Download CSV", f, file_name=csv_file, mime="text/csv")
+
+        with open(pdf_file, "rb") as f:
+            st.download_button("Download PDF", f, file_name=pdf_file, mime="application/pdf")
+
