@@ -3,6 +3,7 @@ from utils.weather import fetch_pvgis_tmy
 from utils.simulation import simulate_energy_output
 from utils.financials import calculate_financials
 from utils.report import export_to_csv, export_to_pdf
+from utils.optimizer import optimize_tilt_azimuth
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,8 +19,17 @@ inverters_df = pd.read_csv("inverters.csv")
 st.sidebar.header("📍 Location & System Settings")
 latitude = st.sidebar.number_input("Latitude", value=40.7128)
 longitude = st.sidebar.number_input("Longitude", value=-74.0060)
-tilt = st.sidebar.slider("Tilt Angle (°)", min_value=0, max_value=90, value=30)
-azimuth = st.sidebar.slider("Azimuth (°)", min_value=0, max_value=360, value=180)
+
+# Panel Orientation - Tilt/Azimuth
+st.sidebar.subheader("📐 Panel Orientation")
+optimize = st.sidebar.checkbox("Auto-optimize Tilt & Azimuth", value=False)
+
+if not optimize:
+    tilt = st.sidebar.slider("Tilt Angle (°)", 0, 60, 30)
+    azimuth = st.sidebar.slider("Azimuth (°)", 90, 270, 180)
+else:
+    tilt = None
+    azimuth = None
 
 # Module Picker
 st.sidebar.subheader("⚡ Select PV Module")
@@ -38,7 +48,6 @@ selected_inverter = inverters_df[inverters_df["Model"] == inverter_choice].iloc[
 
 # Region-based Loss Inputs
 st.sidebar.header("⚙️ Loss Factors")
-
 region = st.sidebar.selectbox("Site Region Type", [
     "Urban (Clean Roofs)",
     "Rural (Moderate Soiling)",
@@ -68,6 +77,13 @@ if st.sidebar.button("Run Simulation"):
 
     if isinstance(weather_df, pd.DataFrame):
         st.success("Weather data fetched successfully!")
+
+        if optimize:
+            st.info("Optimizing tilt and azimuth for max output...")
+            tilt, azimuth, max_energy = optimize_tilt_azimuth(
+                weather_df, latitude, longitude, system_size_kw
+            )
+            st.success(f"✅ Optimal Tilt: {tilt}°, Azimuth: {azimuth}°")
 
         st.info("Running energy simulation...")
         monthly_energy, processed_weather = simulate_energy_output(
@@ -105,7 +121,6 @@ if st.sidebar.button("Run Simulation"):
             st.download_button("Download PDF", f, file_name=pdf_file, mime="application/pdf")
 
         st.subheader("💰 Financial Calculator")
-
         cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
         energy_price = st.number_input("Energy Price ($/kWh)", value=0.12)
 
