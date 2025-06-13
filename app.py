@@ -5,20 +5,20 @@ from utils.financials import calculate_financials
 from utils.report import export_to_csv, export_to_pdf
 from utils.optimizer import optimize_tilt_azimuth
 from utils.curves import plot_iv_pv_curves
+from utils.panond_parser import parse_pan_file, parse_ond_file
 
 import pandas as pd
 import matplotlib.pyplot as plt
 from streamlit_folium import st_folium
 import folium
 
-st.set_page_config(page_title="PVSimApp - Phase 2", layout="centered")
+st.set_page_config(page_title="PVSimApp - PAN Support", layout="centered")
 st.title("🔆 PVSimApp - PV Simulation Tool")
 
-# Load module & inverter data
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
 
-# Map Picker for Location
+# Location Map Picker
 st.sidebar.header("🌍 Select Location on Map")
 default_coords = [40.7128, -74.0060]
 m = folium.Map(location=default_coords, zoom_start=4)
@@ -47,8 +47,34 @@ else:
 st.sidebar.subheader("⚡ Select PV Module")
 module_choice = st.sidebar.selectbox("Module", modules_df["Model"])
 selected_module = modules_df[modules_df["Model"] == module_choice].iloc[0]
-module_power = selected_module["Power (W)"]
+module_power_default = selected_module["Power (W)"]
 
+# Upload PAN and OND
+st.sidebar.subheader("📥 Upload PAN/OND Files")
+pan_file = st.sidebar.file_uploader("Upload PAN (module)", type=["pan"])
+ond_file = st.sidebar.file_uploader("Upload OND (inverter)", type=["ond"])
+
+if pan_file:
+    parsed_module = parse_pan_file(pan_file.read())
+    module_power = parsed_module["Pmax"]
+    vmp = parsed_module["Vmp"]
+    imp = parsed_module["Imp"]
+    voc = parsed_module["Voc"]
+    isc = parsed_module["Isc"]
+else:
+    parsed_module = None
+    module_power = module_power_default
+    vmp = selected_module["Vmp (V)"]
+    imp = selected_module["Imp (A)"]
+    voc = selected_module["Voc (V)"]
+    isc = selected_module["Isc (A)"]
+
+if ond_file:
+    parsed_inverter = parse_ond_file(ond_file.read())
+else:
+    parsed_inverter = None
+
+# System Size
 num_modules = st.sidebar.number_input("Modules in Array", min_value=1, value=12)
 system_size_kw = (module_power * num_modules) / 1000
 st.sidebar.markdown(f"**System Size**: {system_size_kw:.2f} kW")
@@ -58,16 +84,12 @@ st.sidebar.subheader("🔌 Select Inverter")
 inverter_choice = st.sidebar.selectbox("Inverter", inverters_df["Model"])
 selected_inverter = inverters_df[inverters_df["Model"] == inverter_choice].iloc[0]
 
-# Losses by Region
+# Loss Factors
 st.sidebar.header("⚙️ Loss Factors")
 region = st.sidebar.selectbox("Site Region Type", [
-    "Urban (Clean Roofs)",
-    "Rural (Moderate Soiling)",
-    "Coastal (High Salt Exposure)",
-    "Desert (Heavy Dust)",
-    "Forested/Shady"
+    "Urban (Clean Roofs)", "Rural (Moderate Soiling)", "Coastal (High Salt Exposure)",
+    "Desert (Heavy Dust)", "Forested/Shady"
 ])
-
 region_presets = {
     "Urban (Clean Roofs)": {"soiling": 1, "shading": 2},
     "Rural (Moderate Soiling)": {"soiling": 3, "shading": 3},
@@ -75,7 +97,6 @@ region_presets = {
     "Desert (Heavy Dust)": {"soiling": 6, "shading": 2},
     "Forested/Shady": {"soiling": 2, "shading": 10}
 }
-
 preset = region_presets[region]
 soiling_loss = st.sidebar.slider("Soiling Loss (%)", 0, 10, preset["soiling"])
 shading_loss = st.sidebar.slider("Shading Loss (%)", 0, 20, preset["shading"])
@@ -91,25 +112,23 @@ if st.sidebar.button("Run Simulation"):
         st.success("Weather data fetched!")
 
         if optimize:
-            st.info("Optimizing tilt/azimuth...")
             tilt, azimuth, _ = optimize_tilt_azimuth(weather_df, latitude, longitude, system_size_kw)
             st.success(f"Optimal Tilt: {tilt}°, Azimuth: {azimuth}°")
 
-        st.info("Simulating system...")
         monthly_energy, _ = simulate_energy_output(
             weather_df, latitude, longitude, tilt, azimuth, system_size_kw
         )
 
-        total_loss_pct = (soiling_loss + shading_loss + wiring_loss + inverter_loss) / 100.0
-        monthly_energy["Energy (kWh)"] *= (1 - total_loss_pct)
+        loss_pct = (soiling_loss + shading_loss + wiring_loss + inverter_loss) / 100.0
+        monthly_energy["Energy (kWh)"] *= (1 - loss_pct)
 
         st.subheader("📊 Monthly Energy Output")
         st.dataframe(monthly_energy)
 
         fig, ax = plt.subplots()
-        monthly_energy.plot(kind='bar', legend=False, ax=ax)
+        monthly_energy.plot(kind="bar", ax=ax)
         ax.set_ylabel("Energy (kWh)")
-        ax.set_title("Monthly AC Energy Production (After Losses)")
+        ax.set_title("Monthly Energy Production (After Losses)")
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
@@ -123,22 +142,16 @@ if st.sidebar.button("Run Simulation"):
         with open("monthly_energy.pdf", "rb") as f:
             st.download_button("Download PDF", f, file_name="monthly_energy.pdf")
 
-        st.subheader("💰 Financial Summary")
+        st.subheader("💰 Financial Analysis")
         cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
         energy_price = st.number_input("Electricity Rate ($/kWh)", value=0.12)
 
         results = calculate_financials(system_size_kw, cost_per_kw, energy_price, monthly_energy)
-
         for k, v in results.items():
             st.write(f"**{k}**: ${v:,.2f}" if "($)" in k else f"**{k}**: {v:,.2f}")
 
-        st.subheader("🔋 I-V and P-V Curves of Selected Module")
-        fig_iv, fig_pv = plot_iv_pv_curves(
-            vmp=selected_module["Vmp (V)"],
-            imp=selected_module["Imp (A)"],
-            voc=selected_module["Voc (V)"],
-            isc=selected_module["Isc (A)"]
-        )
+        st.subheader("🔋 I-V and P-V Curves")
+        fig_iv, fig_pv = plot_iv_pv_curves(vmp, imp, voc, isc)
         st.pyplot(fig_iv)
         st.pyplot(fig_pv)
 
