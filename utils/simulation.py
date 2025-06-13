@@ -1,56 +1,31 @@
 import pandas as pd
-import pvlib
-from pvlib.temperature import sapm_cell
-from pvlib.pvsystem import PVSystem
-from pvlib.modelchain import ModelChain
-from pvlib.location import Location
+import numpy as np
 
-def simulate_energy_output(weather_df, lat, lon, tilt, azimuth, system_size_kw):
-    """
-    Simulate energy output using pvlib.
-    Returns monthly energy output (kWh) and processed weather data.
-    """
+def simulate_energy_output(weather_df, lat, lon, tilt, azimuth, system_kw):
+    irradiance = weather_df["G(i)"].values
+    temp_air = weather_df["T2m"].values
+    wind_speed = weather_df["WS10m"].values
 
-    # Parse datetime from weather
-    weather_df['time'] = pd.to_datetime(weather_df[['Year', 'Month', 'Day', 'Hour']])
-    weather_df.set_index('time', inplace=True)
+    poa_irradiance = irradiance  # already POA from PVGIS
+    module_temp = temp_air + (irradiance * (0.035 / (8.91 + 2.0 * wind_speed)))
+    temp_coeff = -0.004  # %/°C
 
-    # Required weather inputs
-    weather = weather_df.rename(columns={
-        'G(i)': 'ghi',
-        'Gb(i)': 'dni',
-        'Gd(i)': 'dhi',
-        'T2m': 'temp_air',
-        'WS10m': 'wind_speed'
-    })[['ghi', 'dni', 'dhi', 'temp_air', 'wind_speed']]
+    reference_eff = 0.18
+    nominal_power = system_kw * 1000
+    power_output = nominal_power * (poa_irradiance / 1000.0)
+    temp_loss = 1 + temp_coeff * (module_temp - 25)
+    power_output *= temp_loss
 
-    # Define PV system with basic parameters
-    module_parameters = {
-        'pdc0': system_size_kw * 1000,  # W
-        'gamma_pdc': -0.004  # 1/°C - default temp coefficient
-    }
+    monthly = pd.DataFrame({
+        "Month": pd.to_datetime(weather_df["time"], utc=True).month,
+        "Energy (kWh)": power_output / 1000.0
+    }).groupby("Month").sum().reset_index()
 
-    temperature_model_parameters = pvlib.temperature.TEMPERATURE_MODEL_PARAMETERS['sapm']['open_rack_glass_glass']
+    hourly_details = pd.DataFrame({
+        "Time": pd.to_datetime(weather_df["time"], utc=True),
+        "POA Irradiance (W/m²)": poa_irradiance,
+        "Module Temp (°C)": module_temp,
+        "Efficiency (%)": (power_output / (poa_irradiance * system_kw + 1e-9)) * 100
+    })
 
-    pv_system = PVSystem(
-        surface_tilt=tilt,
-        surface_azimuth=azimuth,
-        module_parameters=module_parameters,
-        temperature_model_parameters=temperature_model_parameters
-    )
-
-    # Define location
-    location = Location(lat, lon, tz='UTC')
-
-    # Run simulation
-    mc = ModelChain(pv_system, location, aoi_model='physical', spectral_model='no_loss')
-    mc.run_model(weather)
-
-    # AC output in watts → kWh
-    ac_power = mc.ac.fillna(0)
-    energy_kwh = ac_power.resample('M').sum() / 1000
-
-    monthly_energy = energy_kwh.to_frame(name='Energy (kWh)')
-    monthly_energy.index = monthly_energy.index.strftime('%B')
-
-    return monthly_energy, weather
+    return monthly, hourly_details
