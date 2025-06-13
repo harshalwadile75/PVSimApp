@@ -9,7 +9,8 @@ from utils.panond_parser import parse_pan_file, parse_ond_file
 from utils.project_config import save_config, load_config
 from utils.visuals import plot_hourly_time_series, plot_loss_waterfall
 from utils.degradation import estimate_annual_degradation, simulate_lifetime_energy
-from utils.bom_validator import validate_bom  # NEW for Phase 3
+from utils.bom_validator import validate_bom
+from utils.risk_classifier import classify_degradation_risk, explain_risk_factors
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -143,6 +144,13 @@ if st.sidebar.button("Run Simulation"):
 
         st.subheader("📉 Degradation Risk Forecast (25 years)")
         deg_rate = estimate_annual_degradation(hourly_df["Module Temp (°C)"])
+        risk_label = classify_degradation_risk(deg_rate)
+        explanation = explain_risk_factors(hourly_df["Module Temp (°C)"])
+
+        st.markdown(f"**Estimated Annual Degradation:** `{deg_rate:.2f}%`")
+        st.markdown(f"**Risk Classification:** {risk_label}")
+        st.info(explanation)
+
         deg_df = simulate_lifetime_energy(monthly_df, deg_rate)
         st.line_chart(deg_df.set_index("Year"))
 
