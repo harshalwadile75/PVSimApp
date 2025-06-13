@@ -21,7 +21,7 @@ import folium
 from datetime import datetime
 
 st.set_page_config(page_title="PVSimApp - Phase 4", layout="wide")
-st.title("🔆 PVSimApp – BOM Comparison + PDF Export (Phase 4)")
+st.title("🔆 PVSimApp – BOM Comparison + PDF + Chart (Phase 4)")
 
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
@@ -135,13 +135,40 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
             with open(pdf_name, "rb") as f:
                 col.download_button("📄 Download PDF Report", f, file_name=pdf_name)
 
-        run_bom_analysis(modules_df[modules_df["Model"] == module_A].iloc[0],
-                         inverters_df[inverters_df["Model"] == inverter_A].iloc[0],
-                         num_modules_A, encapsulant_A, col1, "BOM A")
+            return {
+                "Label": label,
+                "Energy": monthly["Energy (kWh)"].sum(),
+                "Degradation": deg_rate,
+                "ROI": roi["ROI (%)"]
+            }
+
+        bom_a_result = run_bom_analysis(
+            modules_df[modules_df["Model"] == module_A].iloc[0],
+            inverters_df[inverters_df["Model"] == inverter_A].iloc[0],
+            num_modules_A, encapsulant_A, col1, "BOM A"
+        )
 
         if compare_mode:
-            run_bom_analysis(modules_df[modules_df["Model"] == module_B].iloc[0],
-                             inverters_df[inverters_df["Model"] == inverter_B].iloc[0],
-                             num_modules_B, encapsulant_B, col2, "BOM B")
+            bom_b_result = run_bom_analysis(
+                modules_df[modules_df["Model"] == module_B].iloc[0],
+                inverters_df[inverters_df["Model"] == inverter_B].iloc[0],
+                num_modules_B, encapsulant_B, col2, "BOM B"
+            )
+
+            st.subheader("📊 BOM Comparison Summary")
+            labels = ["Annual Energy (kWh)", "Degradation (%)", "ROI (%)"]
+            a_vals = [bom_a_result["Energy"], bom_a_result["Degradation"], bom_a_result["ROI"]]
+            b_vals = [bom_b_result["Energy"], bom_b_result["Degradation"], bom_b_result["ROI"]]
+
+            x = range(len(labels))
+            fig, ax = plt.subplots()
+            ax.bar([i - 0.2 for i in x], a_vals, width=0.4, label="BOM A")
+            ax.bar([i + 0.2 for i in x], b_vals, width=0.4, label="BOM B")
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels)
+            ax.set_ylabel("Value")
+            ax.set_title("BOM A vs BOM B Summary Comparison")
+            ax.legend()
+            st.pyplot(fig)
     else:
         st.error("❌ Weather fetch failed.")
