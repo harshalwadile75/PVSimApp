@@ -11,6 +11,7 @@ from utils.visuals import plot_hourly_time_series, plot_loss_waterfall
 from utils.degradation import estimate_annual_degradation, simulate_lifetime_energy
 from utils.bom_validator import validate_bom
 from utils.risk_classifier import classify_degradation_risk, explain_risk_factors
+from utils.failure_predictor import predict_failure_modes
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -153,6 +154,12 @@ if st.sidebar.button("Run Simulation"):
 
         deg_df = simulate_lifetime_energy(monthly_df, deg_rate)
         st.line_chart(deg_df.set_index("Year"))
+
+        st.subheader("⚠️ Failure Mode Prediction")
+        encapsulant = st.selectbox("Encapsulant Type", ["EVA", "POE"])
+        failures = predict_failure_modes(selected_module, weather, encapsulant)
+        for f in failures:
+            st.write(f)
 
         st.subheader("💰 Financial Analysis")
         cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
