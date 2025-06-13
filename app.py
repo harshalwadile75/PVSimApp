@@ -1,8 +1,13 @@
 import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+from streamlit_folium import st_folium
+import folium
+
 from utils.weather import fetch_pvgis_tmy
 from utils.simulation import simulate_energy_output
 from utils.financials import calculate_financials
-from utils.report import export_to_csv, export_to_pdf, export_comparison_pdf
+from utils.report import export_to_csv, export_to_pdf
 from utils.optimizer import optimize_tilt_azimuth
 from utils.curves import plot_iv_pv_curves
 from utils.panond_parser import parse_pan_file, parse_ond_file
@@ -14,27 +19,21 @@ from utils.risk_classifier import classify_degradation_risk, explain_risk_factor
 from utils.failure_predictor import predict_failure_modes
 from utils.test_recommender import recommend_tests
 from utils.ai_recommender import recommend_bom
+from utils.risk_scorer import compute_risk_score
 
-import pandas as pd
-import matplotlib.pyplot as plt
-from streamlit_folium import st_folium
-import folium
-from datetime import datetime
-
-st.set_page_config(page_title="PVSimApp - Phase 5", layout="wide")
-st.title("🔆 PVSimApp – AI BOM Optimization + Smart Setup")
+st.set_page_config(page_title="PVSimApp - Phase 5", layout="centered")
+st.title("🔆 PVSimApp – Smart Solar Simulation (Phase 5)")
 
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
 
-# Session defaults
 for k in ["mod_a", "inv_a", "encap_a", "num_a"]:
     if k not in st.session_state:
         st.session_state[k] = None
 
-# Location picker
+# Location Picker
 st.sidebar.header("🌍 Select Location")
-default_coords = [37.77, -122.42]
+default_coords = [40.7128, -74.0060]
 m = folium.Map(location=default_coords, zoom_start=4)
 marker = folium.Marker(location=default_coords, draggable=True)
 marker.add_to(m)
@@ -45,167 +44,155 @@ st.sidebar.markdown(f"**Latitude**: `{latitude:.4f}`, **Longitude**: `{longitude
 
 # Orientation
 st.sidebar.subheader("📐 Orientation")
-optimize = st.sidebar.checkbox("Auto Optimize Tilt/Azimuth", value=True)
-tilt = azimuth = None
+optimize = st.sidebar.checkbox("Auto Optimize Tilt/Azimuth", value=False)
 if not optimize:
     tilt = st.sidebar.slider("Tilt (°)", 0, 60, 30)
     azimuth = st.sidebar.slider("Azimuth (°)", 90, 270, 180)
+else:
+    tilt = None
+    azimuth = None
 
-# BOM Mode
-st.sidebar.subheader("⚙️ BOM Mode")
-compare_mode = st.sidebar.checkbox("🔁 Enable BOM Comparison", value=False)
+# Module
+st.sidebar.subheader("⚡ PV Module")
+module_choice = st.sidebar.selectbox("Select Module", modules_df["Model"], index=0 if not st.session_state["mod_a"] else modules_df["Model"].tolist().index(st.session_state["mod_a"]))
+selected_module = modules_df[modules_df["Model"] == module_choice].iloc[0]
+module_power_default = selected_module["Power (W)"]
 
-# BOM A
-st.sidebar.subheader("📦 BOM A – Main")
-module_A = st.sidebar.selectbox("Module A", modules_df["Model"], key="mod_a")
-inverter_A = st.sidebar.selectbox("Inverter A", inverters_df["Model"], key="inv_a")
-num_modules_A = st.sidebar.number_input("Modules A", 1, 100, 12, key="num_a")
-encapsulant_A = st.sidebar.selectbox("Encapsulant A", ["EVA", "POE"], key="encap_a")
+# PAN/OND upload
+st.sidebar.subheader("📥 Upload PAN/OND")
+pan_file = st.sidebar.file_uploader("Upload PAN (.pan)", type=["pan"])
+ond_file = st.sidebar.file_uploader("Upload OND (.ond)", type=["ond"])
+if pan_file:
+    parsed_module = parse_pan_file(pan_file.read())
+    module_power = parsed_module["Pmax"]
+    vmp, imp, voc, isc = parsed_module["Vmp"], parsed_module["Imp"], parsed_module["Voc"], parsed_module["Isc"]
+else:
+    module_power = module_power_default
+    vmp = selected_module["Vmp (V)"]
+    imp = selected_module["Imp (A)"]
+    voc = selected_module["Voc (V)"]
+    isc = selected_module["Isc (A)"]
 
-# BOM B
-if compare_mode:
-    st.sidebar.subheader("📦 BOM B – Comparison")
-    module_B = st.sidebar.selectbox("Module B", modules_df["Model"], key="mod_b")
-    inverter_B = st.sidebar.selectbox("Inverter B", inverters_df["Model"], key="inv_b")
-    num_modules_B = st.sidebar.number_input("Modules B", 1, 100, 12, key="num_b")
-    encapsulant_B = st.sidebar.selectbox("Encapsulant B", ["EVA", "POE"], key="encap_b")
+# System sizing
+num_modules = st.sidebar.number_input("Number of Modules", min_value=1, value=st.session_state["num_a"] or 12)
+system_kw = (module_power * num_modules) / 1000
+st.sidebar.markdown(f"**System Size**: {system_kw:.2f} kW")
+
+# Inverter
+st.sidebar.subheader("🔌 Inverter")
+inverter_choice = st.sidebar.selectbox("Select Inverter", inverters_df["Model"], index=0 if not st.session_state["inv_a"] else inverters_df["Model"].tolist().index(st.session_state["inv_a"]))
+selected_inverter = inverters_df[inverters_df["Model"] == inverter_choice].iloc[0]
 
 # Losses
-st.sidebar.subheader("🔧 Losses")
-losses = {
-    "Soiling": st.sidebar.slider("Soiling (%)", 0, 10, 2),
-    "Shading": st.sidebar.slider("Shading (%)", 0, 20, 3),
-    "Wiring": st.sidebar.slider("Wiring (%)", 0, 5, 2),
-    "Inverter": st.sidebar.slider("Inverter (%)", 0, 5, 2)
-}
+st.sidebar.subheader("⚙️ Loss Factors")
+soiling = st.sidebar.slider("Soiling (%)", 0, 10, 2)
+shading = st.sidebar.slider("Shading (%)", 0, 20, 3)
+wiring = st.sidebar.slider("Wiring (%)", 0, 5, 2)
+inv_loss = st.sidebar.slider("Inverter (%)", 0, 5, 2)
+loss_dict = {"Soiling": soiling, "Shading": shading, "Wiring": wiring, "Inverter": inv_loss}
 
-# Run Button
-if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
-    st.info("Fetching weather...")
-    weather = fetch_pvgis_tmy(latitude, longitude)
-    if isinstance(weather, pd.DataFrame):
-        if optimize:
-            tilt, azimuth, _ = optimize_tilt_azimuth(weather, latitude, longitude, 1)
-        st.success(f"Tilt: {tilt}°, Azimuth: {azimuth}°")
+# Encapsulant
+encapsulant = st.sidebar.selectbox("Encapsulant Type", ["EVA", "POE"], index=0 if not st.session_state["encap_a"] else ["EVA", "POE"].index(st.session_state["encap_a"]))
 
-        col1, col2 = st.columns(2) if compare_mode else [st]
+# Config
+st.sidebar.subheader("💾 Save / Load Config")
+load_file = st.sidebar.file_uploader("Load Config", type=["json"])
+if load_file:
+    cfg = load_config(load_file)
+    st.session_state.update(cfg)
+    st.success("Config loaded. Update UI selections manually.")
 
-        def run_bom_analysis(mod, inv, n_mod, encapsulant, col, label):
-            kw = (mod["Power (W)"] * n_mod) / 1000
-            col.subheader(f"📦 {label} – {mod['Model']} + {inv['Model']}")
-            col.markdown(f"🔋 System Size: `{kw:.2f} kW`")
-            monthly, hourly = simulate_energy_output(weather, latitude, longitude, tilt, azimuth, kw)
-            monthly["Energy (kWh)"] *= (1 - sum(losses.values()) / 100)
-            col.markdown("📊 **Monthly Energy**")
-            col.dataframe(monthly)
+if st.sidebar.button("Save Config"):
+    filename = save_config({
+        "latitude": latitude,
+        "longitude": longitude,
+        "tilt": tilt,
+        "azimuth": azimuth,
+        "module": module_choice,
+        "inverter": inverter_choice,
+        "num_modules": num_modules,
+        "encapsulant": encapsulant,
+        "losses": loss_dict
+    })
+    with open(filename, "rb") as f:
+        st.download_button("Download JSON", f, file_name=filename)
 
-            deg_rate = estimate_annual_degradation(hourly["Module Temp (°C)"])
-            label_risk = classify_degradation_risk(deg_rate)
-            col.markdown(f"📉 Annual Degradation: `{deg_rate:.2f}%` ({label_risk})")
+# AI Recommendation
+weather = fetch_pvgis_tmy(latitude, longitude)
+top_boms = recommend_bom(weather, modules_df, inverters_df)
+if top_boms:
+    top = top_boms[0]
+    if st.button("✨ Use Top Recommendation"):
+        st.session_state["mod_a"] = top["Module"]
+        st.session_state["inv_a"] = top["Inverter"]
+        st.session_state["encap_a"] = top["Encapsulant"]
+        st.session_state["num_a"] = 12
+        st.experimental_rerun()
 
-            failures = predict_failure_modes(mod, weather, encapsulant)
-            for f in failures:
-                col.write(f)
+# Run Simulation
+if st.sidebar.button("Run Simulation"):
+    st.info("Running simulation with current settings...")
+    if optimize:
+        tilt, azimuth, _ = optimize_tilt_azimuth(weather, latitude, longitude, system_kw)
+    st.success(f"Using Tilt={tilt}°, Azimuth={azimuth}°")
 
-            test, rationale = recommend_tests(weather, encapsulant)
-            for k, v in test.items():
-                col.markdown(f"🧪 {k}: `{v}`")
-            for r in rationale:
-                col.info(r)
+    bom_feedback, issue_count = validate_bom(selected_module, selected_inverter, num_modules, (latitude, longitude), weather)
+    for item in bom_feedback:
+        st.write(item)
+    if issue_count > 0:
+        st.warning("⚠️ Please fix BOM issues before finalizing system.")
 
-            roi = calculate_financials(kw, 1200, 0.12, monthly)
-            col.markdown(f"💰 ROI: `{roi['ROI (%)']:.2f}%`")
+    monthly_df, hourly_df = simulate_energy_output(weather, latitude, longitude, tilt, azimuth, system_kw)
+    total_loss = sum(loss_dict.values()) / 100
+    monthly_df["Energy (kWh)"] *= (1 - total_loss)
 
-            config = {
-                "Location": f"{latitude:.4f}, {longitude:.4f}",
-                "Tilt": tilt,
-                "Azimuth": azimuth,
-                "Module": mod["Model"],
-                "Inverter": inv["Model"],
-                "Encapsulant": encapsulant,
-                "System Size (kW)": kw,
-                "Date": datetime.now().strftime("%Y-%m-%d"),
-            }
+    st.subheader("📊 Monthly Energy Output")
+    st.dataframe(monthly_df)
+    st.pyplot(plot_loss_waterfall(monthly_df["Energy (kWh)"].sum(), loss_dict))
 
-            pdf_name = f"{label}_report.pdf"
-            export_to_pdf(
-                filename=pdf_name,
-                config=config,
-                monthly_energy=list(zip(monthly["Month"], monthly["Energy (kWh)"])),
-                degradation=deg_rate,
-                risk=label_risk,
-                test_summary=test,
-                roi_info=roi,
-                rationale=rationale,
-            )
-            with open(pdf_name, "rb") as f:
-                col.download_button("📄 Download PDF Report", f, file_name=pdf_name)
+    st.subheader("📈 POA / Temp / Efficiency Charts")
+    st.pyplot(plot_hourly_time_series(hourly_df))
 
-            return {
-                "Label": label,
-                "Energy": monthly["Energy (kWh)"].sum(),
-                "Degradation": deg_rate,
-                "ROI": roi["ROI (%)"]
-            }
+    st.subheader("🔋 I-V and P-V Curves")
+    iv_fig, pv_fig = plot_iv_pv_curves(vmp, imp, voc, isc)
+    st.pyplot(iv_fig)
+    st.pyplot(pv_fig)
 
-        mod_A = modules_df[modules_df["Model"] == module_A].iloc[0]
-        inv_A = inverters_df[inverters_df["Model"] == inverter_A].iloc[0]
-        bom_a_result = run_bom_analysis(mod_A, inv_A, num_modules_A, encapsulant_A, col1, "BOM A")
+    st.subheader("📉 Degradation Risk Forecast (25 years)")
+    deg_rate = estimate_annual_degradation(hourly_df["Module Temp (°C)"])
+    risk_label = classify_degradation_risk(deg_rate)
+    explanation = explain_risk_factors(hourly_df["Module Temp (°C)"])
+    st.markdown(f"**Estimated Annual Degradation:** `{deg_rate:.2f}%`")
+    st.markdown(f"**Risk Classification:** {risk_label}")
+    st.info(explanation)
 
-        if compare_mode:
-            mod_B = modules_df[modules_df["Model"] == module_B].iloc[0]
-            inv_B = inverters_df[inverters_df["Model"] == inverter_B].iloc[0]
-            bom_b_result = run_bom_analysis(mod_B, inv_B, num_modules_B, encapsulant_B, col2, "BOM B")
+    deg_df = simulate_lifetime_energy(monthly_df, deg_rate)
+    st.line_chart(deg_df.set_index("Year"))
 
-            # Summary Bar Plot
-            st.subheader("📊 BOM Comparison Summary")
-            labels = ["Annual Energy (kWh)", "Degradation (%)", "ROI (%)"]
-            a_vals = [bom_a_result["Energy"], bom_a_result["Degradation"], bom_a_result["ROI"]]
-            b_vals = [bom_b_result["Energy"], bom_b_result["Degradation"], bom_b_result["ROI"]]
-            x = range(len(labels))
-            fig, ax = plt.subplots()
-            ax.bar([i - 0.2 for i in x], a_vals, width=0.4, label="BOM A")
-            ax.bar([i + 0.2 for i in x], b_vals, width=0.4, label="BOM B")
-            ax.set_xticks(x)
-            ax.set_xticklabels(labels)
-            ax.set_title("BOM A vs BOM B Summary")
-            ax.legend()
-            st.pyplot(fig)
+    st.subheader("⚠️ Failure Mode Prediction")
+    failures = predict_failure_modes(selected_module, weather, encapsulant)
+    for f in failures:
+        st.write(f)
 
-            # Export
-            df = pd.DataFrame({"Metric": labels, "BOM A": a_vals, "BOM B": b_vals})
-            df.to_csv("comparison_summary.csv", index=False)
-            with open("comparison_summary.csv", "rb") as f:
-                st.download_button("⬇️ Download CSV Summary", f, file_name="comparison_summary.csv")
-            export_comparison_pdf("comparison_summary.pdf", bom_a_result, bom_b_result)
-            with open("comparison_summary.pdf", "rb") as f:
-                st.download_button("⬇️ Download PDF Summary", f, file_name="comparison_summary.pdf")
-    else:
-        st.error("❌ Weather fetch failed.")
+    st.subheader("🧪 Custom Test Plan Recommendation")
+    test_plan, rationale = recommend_tests(weather, encapsulant)
+    for k, v in test_plan.items():
+        st.write(f"**{k}**: `{v}`")
+    for r in rationale:
+        st.info(r)
 
-# ✅ AI BOM Recommendation + One-Click Smart Setup
-st.markdown("---")
-st.subheader("🤖 AI-Based BOM Recommendations")
+    st.subheader("⚖️ Risk Score Summary")
+    risk_score, risk_rating = compute_risk_score(deg_rate, test_plan, failures)
+    st.markdown(f"**Overall Risk Score:** `{risk_score}` → `{risk_rating}`")
 
-try:
-    weather = fetch_pvgis_tmy(latitude, longitude)
-    if isinstance(weather, pd.DataFrame):
-        top_boms = recommend_bom(weather, modules_df, inverters_df)
-        for idx, bom in enumerate(top_boms):
-            st.markdown(f"**🔧 Recommendation #{idx+1}**")
-            st.write(f"Module: `{bom['Module']}`")
-            st.write(f"Inverter: `{bom['Inverter']}`")
-            st.write(f"Suggested Encapsulant: `{bom['Encapsulant']}`")
-            st.write(f"Smart Score: `{bom['Score']}`")
-            st.markdown("---")
+    st.subheader("💰 Financial Analysis")
+    cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
+    rate = st.number_input("Electricity Rate ($/kWh)", value=0.12)
+    fin = calculate_financials(system_kw, cost_per_kw, rate, monthly_df)
+    for k, v in fin.items():
+        st.write(f"**{k}**: ${v:,.2f}" if "($)" in k else f"**{k}**: {v:,.2f}")
 
-        if top_boms:
-            top = top_boms[0]
-            if st.button("✨ Use Top Recommendation"):
-                st.session_state["mod_a"] = top["Module"]
-                st.session_state["inv_a"] = top["Inverter"]
-                st.session_state["encap_a"] = top["Encapsulant"]
-                st.session_state["num_a"] = 12
-                st.experimental_rerun()
-except Exception as e:
-    st.error(f"AI recommendation failed: {e}")
+    st.subheader("📁 Export")
+    export_to_csv(monthly_df, "monthly_energy.csv")
+    with open("monthly_energy.csv", "rb") as f:
+        st.download_button("Download CSV", f, file_name="monthly_energy.csv")
