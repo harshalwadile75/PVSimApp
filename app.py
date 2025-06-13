@@ -12,6 +12,7 @@ from utils.degradation import estimate_annual_degradation, simulate_lifetime_ene
 from utils.bom_validator import validate_bom
 from utils.risk_classifier import classify_degradation_risk, explain_risk_factors
 from utils.failure_predictor import predict_failure_modes
+from utils.test_recommender import recommend_tests
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -160,6 +161,13 @@ if st.sidebar.button("Run Simulation"):
         failures = predict_failure_modes(selected_module, weather, encapsulant)
         for f in failures:
             st.write(f)
+
+        st.subheader("🧪 Custom Test Plan Recommendation")
+        test_plan, rationale = recommend_tests(weather, encapsulant)
+        for k, v in test_plan.items():
+            st.write(f"**{k}**: `{v}`")
+        for r in rationale:
+            st.info(r)
 
         st.subheader("💰 Financial Analysis")
         cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
