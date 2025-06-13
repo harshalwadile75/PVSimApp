@@ -56,3 +56,16 @@ if st.sidebar.button("Run Simulation"):
         with open(pdf_file, "rb") as f:
             st.download_button("Download PDF", f, file_name=pdf_file, mime="application/pdf")
 
+        st.subheader("💰 Financial Calculator")
+
+        cost_per_kw = st.number_input("System Cost ($/kW)", value=1200)
+        energy_price = st.number_input("Energy Price ($/kWh)", value=0.12)
+
+        from utils.financials import calculate_financials
+        results = calculate_financials(system_size_kw, cost_per_kw, energy_price, monthly_energy)
+
+        st.write("### Financial Summary")
+        for key, value in results.items():
+            st.write(f"**{key}**: ${value:,.2f}" if "($)" in key else f"**{key}**: {value:,.2f}")
+
+
