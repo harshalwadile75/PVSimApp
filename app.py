@@ -2,7 +2,7 @@ import streamlit as st
 from utils.weather import fetch_pvgis_tmy
 from utils.simulation import simulate_energy_output
 from utils.financials import calculate_financials
-from utils.report import export_to_csv, export_to_pdf
+from utils.report import export_to_csv, export_to_pdf, export_comparison_pdf
 from utils.optimizer import optimize_tilt_azimuth
 from utils.curves import plot_iv_pv_curves
 from utils.panond_parser import parse_pan_file, parse_ond_file
@@ -21,7 +21,7 @@ import folium
 from datetime import datetime
 
 st.set_page_config(page_title="PVSimApp - Phase 4", layout="wide")
-st.title("🔆 PVSimApp – BOM Comparison + PDF + Chart (Phase 4)")
+st.title("🔆 PVSimApp – BOM Comparison + PDF + Chart + Export (Phase 4)")
 
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
@@ -49,14 +49,14 @@ if not optimize:
 st.sidebar.subheader("⚙️ BOM Mode")
 compare_mode = st.sidebar.checkbox("🔁 Enable BOM Comparison", value=False)
 
-# BOM A (Primary)
+# BOM A
 st.sidebar.subheader("📦 BOM A – Main")
 module_A = st.sidebar.selectbox("Module A", modules_df["Model"], key="mod_a")
 inverter_A = st.sidebar.selectbox("Inverter A", inverters_df["Model"], key="inv_a")
 num_modules_A = st.sidebar.number_input("Modules A", 1, 100, 12, key="num_a")
 encapsulant_A = st.sidebar.selectbox("Encapsulant A", ["EVA", "POE"], key="encap_a")
 
-# BOM B (if enabled)
+# BOM B (optional)
 if compare_mode:
     st.sidebar.subheader("📦 BOM B – Comparison")
     module_B = st.sidebar.selectbox("Module B", modules_df["Model"], key="mod_b")
@@ -155,6 +155,7 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
                 num_modules_B, encapsulant_B, col2, "BOM B"
             )
 
+            # Bar Chart Summary
             st.subheader("📊 BOM Comparison Summary")
             labels = ["Annual Energy (kWh)", "Degradation (%)", "ROI (%)"]
             a_vals = [bom_a_result["Energy"], bom_a_result["Degradation"], bom_a_result["ROI"]]
@@ -170,5 +171,21 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
             ax.set_title("BOM A vs BOM B Summary Comparison")
             ax.legend()
             st.pyplot(fig)
+
+            # Export CSV + PDF Summary
+            summary_df = pd.DataFrame({
+                "Metric": labels,
+                "BOM A": a_vals,
+                "BOM B": b_vals
+            })
+            csv_name = "comparison_summary.csv"
+            summary_df.to_csv(csv_name, index=False)
+            with open(csv_name, "rb") as f:
+                st.download_button("⬇️ Download CSV Summary", f, file_name=csv_name)
+
+            pdf_name = "comparison_summary.pdf"
+            export_comparison_pdf(pdf_name, bom_a_result, bom_b_result)
+            with open(pdf_name, "rb") as f:
+                st.download_button("⬇️ Download PDF Summary", f, file_name=pdf_name)
     else:
         st.error("❌ Weather fetch failed.")
