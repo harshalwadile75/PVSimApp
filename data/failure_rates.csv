@@ -1,0 +1,6 @@
+Model,Encapsulant,ClimateZone,AvgAnnualFailureRate
+Qcells Q.PEAK DUO 400,EVA,hot-humid,0.015
+Canadian Solar CS3W 405,POE,hot-dry,0.008
+LONGi LR5-72HPH-540,EVA,temperate,0.012
+JA Solar JAM72S30 530,POE,hot-humid,0.007
+Trina Solar TSM-405DE09,EVA,cold,0.010
