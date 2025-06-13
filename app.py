@@ -2,7 +2,7 @@ import streamlit as st
 from utils.weather import fetch_pvgis_tmy
 from utils.simulation import simulate_energy_output
 from utils.financials import calculate_financials
-from utils.report import export_to_csv
+from utils.report import export_to_csv, export_to_pdf
 from utils.optimizer import optimize_tilt_azimuth
 from utils.curves import plot_iv_pv_curves
 from utils.panond_parser import parse_pan_file, parse_ond_file
@@ -18,9 +18,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from streamlit_folium import st_folium
 import folium
+from datetime import datetime
 
-st.set_page_config(page_title="PVSimApp - Phase 3", layout="wide")
-st.title("🔆 PVSimApp – Side-by-Side BOM Comparison (Phase 3)")
+st.set_page_config(page_title="PVSimApp - Phase 4", layout="wide")
+st.title("🔆 PVSimApp – BOM Comparison + PDF Export (Phase 4)")
 
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
@@ -47,7 +48,6 @@ if not optimize:
 # BOM Comparison Toggle
 st.sidebar.subheader("⚙️ BOM Mode")
 compare_mode = st.sidebar.checkbox("🔁 Enable BOM Comparison", value=False)
-
 
 # BOM A (Primary)
 st.sidebar.subheader("📦 BOM A – Main")
@@ -82,33 +82,66 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
         st.success(f"Tilt: {tilt}°, Azimuth: {azimuth}°")
 
         col1, col2 = st.columns(2) if compare_mode else [st]
-        def run_bom_analysis(mod_name, inv_name, n_mods, encaps, col, label):
-            mod = modules_df[modules_df["Model"] == mod_name].iloc[0]
-            inv = inverters_df[inverters_df["Model"] == inv_name].iloc[0]
-            kw = (mod["Power (W)"] * n_mods) / 1000
-            col.subheader(f"📦 {label} – {mod_name} + {inv_name}")
+
+        def run_bom_analysis(mod, inv, n_mod, encapsulant, col, label):
+            kw = (mod["Power (W)"] * n_mod) / 1000
+            col.subheader(f"📦 {label} – {mod['Model']} + {inv['Model']}")
             col.markdown(f"🔋 System Size: `{kw:.2f} kW`")
+
             monthly, hourly = simulate_energy_output(weather, latitude, longitude, tilt, azimuth, kw)
             monthly["Energy (kWh)"] *= (1 - sum(losses.values()) / 100)
             col.markdown("📊 **Monthly Energy**")
             col.dataframe(monthly)
-            risk = estimate_annual_degradation(hourly["Module Temp (°C)"])
-            label_risk = classify_degradation_risk(risk)
-            col.markdown(f"📉 Annual Degradation: `{risk:.2f}%` ({label_risk})")
-            failures = predict_failure_modes(mod, weather, encaps)
+
+            deg_rate = estimate_annual_degradation(hourly["Module Temp (°C)"])
+            label_risk = classify_degradation_risk(deg_rate)
+            col.markdown(f"📉 Annual Degradation: `{deg_rate:.2f}%` ({label_risk})")
+
+            failures = predict_failure_modes(mod, weather, encapsulant)
             for f in failures:
                 col.write(f)
-            test, logic = recommend_tests(weather, encaps)
+
+            test, rationale = recommend_tests(weather, encapsulant)
             for k, v in test.items():
                 col.markdown(f"🧪 {k}: `{v}`")
-            for r in logic:
+            for r in rationale:
                 col.info(r)
+
             roi = calculate_financials(kw, 1200, 0.12, monthly)
             col.markdown(f"💰 ROI: `{roi['ROI (%)']:.2f}%`")
 
-        # Run analysis
-        run_bom_analysis(module_A, inverter_A, num_modules_A, encapsulant_A, col1, "BOM A")
+            config = {
+                "Location": f"{latitude:.4f}, {longitude:.4f}",
+                "Tilt": tilt,
+                "Azimuth": azimuth,
+                "Module": mod["Model"],
+                "Inverter": inv["Model"],
+                "Encapsulant": encapsulant,
+                "System Size (kW)": kw,
+                "Date": datetime.now().strftime("%Y-%m-%d"),
+            }
+
+            pdf_name = f"{label}_report.pdf"
+            export_to_pdf(
+                filename=pdf_name,
+                config=config,
+                monthly_energy=list(zip(monthly["Month"], monthly["Energy (kWh)"])),
+                degradation=deg_rate,
+                risk=label_risk,
+                test_summary=test,
+                roi_info=roi,
+                rationale=rationale,
+            )
+            with open(pdf_name, "rb") as f:
+                col.download_button("📄 Download PDF Report", f, file_name=pdf_name)
+
+        run_bom_analysis(modules_df[modules_df["Model"] == module_A].iloc[0],
+                         inverters_df[inverters_df["Model"] == inverter_A].iloc[0],
+                         num_modules_A, encapsulant_A, col1, "BOM A")
+
         if compare_mode:
-            run_bom_analysis(module_B, inverter_B, num_modules_B, encapsulant_B, col2, "BOM B")
+            run_bom_analysis(modules_df[modules_df["Model"] == module_B].iloc[0],
+                             inverters_df[inverters_df["Model"] == inverter_B].iloc[0],
+                             num_modules_B, encapsulant_B, col2, "BOM B")
     else:
         st.error("❌ Weather fetch failed.")
