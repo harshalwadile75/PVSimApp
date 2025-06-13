@@ -13,7 +13,7 @@ from utils.bom_validator import validate_bom
 from utils.risk_classifier import classify_degradation_risk, explain_risk_factors
 from utils.failure_predictor import predict_failure_modes
 from utils.test_recommender import recommend_tests
-from utils.ai_recommender import recommend_bom  # ✅ NEW
+from utils.ai_recommender import recommend_bom
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -22,12 +22,17 @@ import folium
 from datetime import datetime
 
 st.set_page_config(page_title="PVSimApp - Phase 5", layout="wide")
-st.title("🔆 PVSimApp – Smart Solar with AI BOM Optimization (Phase 5)")
+st.title("🔆 PVSimApp – AI BOM Optimization + Smart Setup")
 
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
 
-# Location
+# Session defaults
+for k in ["mod_a", "inv_a", "encap_a", "num_a"]:
+    if k not in st.session_state:
+        st.session_state[k] = None
+
+# Location picker
 st.sidebar.header("🌍 Select Location")
 default_coords = [37.77, -122.42]
 m = folium.Map(location=default_coords, zoom_start=4)
@@ -46,7 +51,7 @@ if not optimize:
     tilt = st.sidebar.slider("Tilt (°)", 0, 60, 30)
     azimuth = st.sidebar.slider("Azimuth (°)", 90, 270, 180)
 
-# BOM Comparison Toggle
+# BOM Mode
 st.sidebar.subheader("⚙️ BOM Mode")
 compare_mode = st.sidebar.checkbox("🔁 Enable BOM Comparison", value=False)
 
@@ -57,7 +62,7 @@ inverter_A = st.sidebar.selectbox("Inverter A", inverters_df["Model"], key="inv_
 num_modules_A = st.sidebar.number_input("Modules A", 1, 100, 12, key="num_a")
 encapsulant_A = st.sidebar.selectbox("Encapsulant A", ["EVA", "POE"], key="encap_a")
 
-# BOM B (optional)
+# BOM B
 if compare_mode:
     st.sidebar.subheader("📦 BOM B – Comparison")
     module_B = st.sidebar.selectbox("Module B", modules_df["Model"], key="mod_b")
@@ -74,8 +79,9 @@ losses = {
     "Inverter": st.sidebar.slider("Inverter (%)", 0, 5, 2)
 }
 
+# Run Button
 if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
-    st.info("Fetching weather data...")
+    st.info("Fetching weather...")
     weather = fetch_pvgis_tmy(latitude, longitude)
     if isinstance(weather, pd.DataFrame):
         if optimize:
@@ -88,7 +94,6 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
             kw = (mod["Power (W)"] * n_mod) / 1000
             col.subheader(f"📦 {label} – {mod['Model']} + {inv['Model']}")
             col.markdown(f"🔋 System Size: `{kw:.2f} kW`")
-
             monthly, hourly = simulate_energy_output(weather, latitude, longitude, tilt, azimuth, kw)
             monthly["Energy (kWh)"] *= (1 - sum(losses.values()) / 100)
             col.markdown("📊 **Monthly Energy**")
@@ -143,54 +148,42 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
                 "ROI": roi["ROI (%)"]
             }
 
-        bom_a_result = run_bom_analysis(
-            modules_df[modules_df["Model"] == module_A].iloc[0],
-            inverters_df[inverters_df["Model"] == inverter_A].iloc[0],
-            num_modules_A, encapsulant_A, col1, "BOM A"
-        )
+        mod_A = modules_df[modules_df["Model"] == module_A].iloc[0]
+        inv_A = inverters_df[inverters_df["Model"] == inverter_A].iloc[0]
+        bom_a_result = run_bom_analysis(mod_A, inv_A, num_modules_A, encapsulant_A, col1, "BOM A")
 
         if compare_mode:
-            bom_b_result = run_bom_analysis(
-                modules_df[modules_df["Model"] == module_B].iloc[0],
-                inverters_df[inverters_df["Model"] == inverter_B].iloc[0],
-                num_modules_B, encapsulant_B, col2, "BOM B"
-            )
+            mod_B = modules_df[modules_df["Model"] == module_B].iloc[0]
+            inv_B = inverters_df[inverters_df["Model"] == inverter_B].iloc[0]
+            bom_b_result = run_bom_analysis(mod_B, inv_B, num_modules_B, encapsulant_B, col2, "BOM B")
 
-            # Summary Chart
+            # Summary Bar Plot
             st.subheader("📊 BOM Comparison Summary")
             labels = ["Annual Energy (kWh)", "Degradation (%)", "ROI (%)"]
             a_vals = [bom_a_result["Energy"], bom_a_result["Degradation"], bom_a_result["ROI"]]
             b_vals = [bom_b_result["Energy"], bom_b_result["Degradation"], bom_b_result["ROI"]]
-
             x = range(len(labels))
             fig, ax = plt.subplots()
             ax.bar([i - 0.2 for i in x], a_vals, width=0.4, label="BOM A")
             ax.bar([i + 0.2 for i in x], b_vals, width=0.4, label="BOM B")
             ax.set_xticks(x)
             ax.set_xticklabels(labels)
-            ax.set_ylabel("Value")
             ax.set_title("BOM A vs BOM B Summary")
             ax.legend()
             st.pyplot(fig)
 
-            # Export Summary Table
-            summary_df = pd.DataFrame({
-                "Metric": labels,
-                "BOM A": a_vals,
-                "BOM B": b_vals
-            })
-            summary_df.to_csv("comparison_summary.csv", index=False)
+            # Export
+            df = pd.DataFrame({"Metric": labels, "BOM A": a_vals, "BOM B": b_vals})
+            df.to_csv("comparison_summary.csv", index=False)
             with open("comparison_summary.csv", "rb") as f:
                 st.download_button("⬇️ Download CSV Summary", f, file_name="comparison_summary.csv")
-
             export_comparison_pdf("comparison_summary.pdf", bom_a_result, bom_b_result)
             with open("comparison_summary.pdf", "rb") as f:
                 st.download_button("⬇️ Download PDF Summary", f, file_name="comparison_summary.pdf")
-
     else:
         st.error("❌ Weather fetch failed.")
 
-# ✅ AI BOM Recommendation
+# ✅ AI BOM Recommendation + One-Click Smart Setup
 st.markdown("---")
 st.subheader("🤖 AI-Based BOM Recommendations")
 
@@ -205,5 +198,14 @@ try:
             st.write(f"Suggested Encapsulant: `{bom['Encapsulant']}`")
             st.write(f"Smart Score: `{bom['Score']}`")
             st.markdown("---")
+
+        if top_boms:
+            top = top_boms[0]
+            if st.button("✨ Use Top Recommendation"):
+                st.session_state["mod_a"] = top["Module"]
+                st.session_state["inv_a"] = top["Inverter"]
+                st.session_state["encap_a"] = top["Encapsulant"]
+                st.session_state["num_a"] = 12
+                st.experimental_rerun()
 except Exception as e:
     st.error(f"AI recommendation failed: {e}")
