@@ -18,6 +18,13 @@ system_size_kw = st.sidebar.number_input("System Size (kW)", value=5.0)
 tilt = st.sidebar.slider("Tilt Angle (°)", min_value=0, max_value=90, value=30)
 azimuth = st.sidebar.slider("Azimuth (°)", min_value=0, max_value=360, value=180)
 
+# Loss Inputs
+st.sidebar.header("⚙️ Loss Factors (%)")
+soiling_loss = st.sidebar.slider("Soiling Loss", 0, 10, 2)
+shading_loss = st.sidebar.slider("Shading Loss", 0, 20, 3)
+wiring_loss = st.sidebar.slider("Wiring Loss", 0, 5, 2)
+inverter_loss = st.sidebar.slider("Inverter Loss", 0, 5, 2)
+
 if st.sidebar.button("Run Simulation"):
     st.info("Fetching weather data from PVGIS...")
     weather_df = fetch_pvgis_tmy(latitude, longitude)
@@ -30,6 +37,12 @@ if st.sidebar.button("Run Simulation"):
             weather_df, latitude, longitude, tilt, azimuth, system_size_kw
         )
 
+        # Apply total losses
+        total_loss_pct = (
+            soiling_loss + shading_loss + wiring_loss + inverter_loss
+        ) / 100.0
+        monthly_energy["Energy (kWh)"] *= (1 - total_loss_pct)
+
         st.subheader("📊 Monthly Energy Output")
         st.dataframe(monthly_energy)
 
@@ -37,7 +50,7 @@ if st.sidebar.button("Run Simulation"):
         fig, ax = plt.subplots()
         monthly_energy.plot(kind='bar', legend=False, ax=ax)
         ax.set_ylabel("Energy (kWh)")
-        ax.set_title("Monthly AC Energy Production")
+        ax.set_title("Monthly AC Energy Production (After Losses)")
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
