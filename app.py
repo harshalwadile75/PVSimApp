@@ -13,6 +13,7 @@ from utils.bom_validator import validate_bom
 from utils.risk_classifier import classify_degradation_risk, explain_risk_factors
 from utils.failure_predictor import predict_failure_modes
 from utils.test_recommender import recommend_tests
+from utils.ai_recommender import recommend_bom  # ✅ NEW
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -20,8 +21,8 @@ from streamlit_folium import st_folium
 import folium
 from datetime import datetime
 
-st.set_page_config(page_title="PVSimApp - Phase 4", layout="wide")
-st.title("🔆 PVSimApp – BOM Comparison + PDF + Chart + Export (Phase 4)")
+st.set_page_config(page_title="PVSimApp - Phase 5", layout="wide")
+st.title("🔆 PVSimApp – Smart Solar with AI BOM Optimization (Phase 5)")
 
 modules_df = pd.read_csv("modules.csv")
 inverters_df = pd.read_csv("inverters.csv")
@@ -155,7 +156,7 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
                 num_modules_B, encapsulant_B, col2, "BOM B"
             )
 
-            # Bar Chart Summary
+            # Summary Chart
             st.subheader("📊 BOM Comparison Summary")
             labels = ["Annual Energy (kWh)", "Degradation (%)", "ROI (%)"]
             a_vals = [bom_a_result["Energy"], bom_a_result["Degradation"], bom_a_result["ROI"]]
@@ -168,24 +169,41 @@ if st.sidebar.button("Run Comparison" if compare_mode else "Run Simulation"):
             ax.set_xticks(x)
             ax.set_xticklabels(labels)
             ax.set_ylabel("Value")
-            ax.set_title("BOM A vs BOM B Summary Comparison")
+            ax.set_title("BOM A vs BOM B Summary")
             ax.legend()
             st.pyplot(fig)
 
-            # Export CSV + PDF Summary
+            # Export Summary Table
             summary_df = pd.DataFrame({
                 "Metric": labels,
                 "BOM A": a_vals,
                 "BOM B": b_vals
             })
-            csv_name = "comparison_summary.csv"
-            summary_df.to_csv(csv_name, index=False)
-            with open(csv_name, "rb") as f:
-                st.download_button("⬇️ Download CSV Summary", f, file_name=csv_name)
+            summary_df.to_csv("comparison_summary.csv", index=False)
+            with open("comparison_summary.csv", "rb") as f:
+                st.download_button("⬇️ Download CSV Summary", f, file_name="comparison_summary.csv")
 
-            pdf_name = "comparison_summary.pdf"
-            export_comparison_pdf(pdf_name, bom_a_result, bom_b_result)
-            with open(pdf_name, "rb") as f:
-                st.download_button("⬇️ Download PDF Summary", f, file_name=pdf_name)
+            export_comparison_pdf("comparison_summary.pdf", bom_a_result, bom_b_result)
+            with open("comparison_summary.pdf", "rb") as f:
+                st.download_button("⬇️ Download PDF Summary", f, file_name="comparison_summary.pdf")
+
     else:
         st.error("❌ Weather fetch failed.")
+
+# ✅ AI BOM Recommendation
+st.markdown("---")
+st.subheader("🤖 AI-Based BOM Recommendations")
+
+try:
+    weather = fetch_pvgis_tmy(latitude, longitude)
+    if isinstance(weather, pd.DataFrame):
+        top_boms = recommend_bom(weather, modules_df, inverters_df)
+        for idx, bom in enumerate(top_boms):
+            st.markdown(f"**🔧 Recommendation #{idx+1}**")
+            st.write(f"Module: `{bom['Module']}`")
+            st.write(f"Inverter: `{bom['Inverter']}`")
+            st.write(f"Suggested Encapsulant: `{bom['Encapsulant']}`")
+            st.write(f"Smart Score: `{bom['Score']}`")
+            st.markdown("---")
+except Exception as e:
+    st.error(f"AI recommendation failed: {e}")
