@@ -36,13 +36,32 @@ st.sidebar.subheader("🔌 Select Inverter")
 inverter_choice = st.sidebar.selectbox("Inverter", inverters_df["Model"])
 selected_inverter = inverters_df[inverters_df["Model"] == inverter_choice].iloc[0]
 
-# Loss Inputs
-st.sidebar.header("⚙️ Loss Factors (%)")
-soiling_loss = st.sidebar.slider("Soiling Loss", 0, 10, 2)
-shading_loss = st.sidebar.slider("Shading Loss", 0, 20, 3)
-wiring_loss = st.sidebar.slider("Wiring Loss", 0, 5, 2)
-inverter_loss = st.sidebar.slider("Inverter Loss", 0, 5, 2)
+# Region-based Loss Inputs
+st.sidebar.header("⚙️ Loss Factors")
 
+region = st.sidebar.selectbox("Site Region Type", [
+    "Urban (Clean Roofs)",
+    "Rural (Moderate Soiling)",
+    "Coastal (High Salt Exposure)",
+    "Desert (Heavy Dust)",
+    "Forested/Shady"
+])
+
+region_presets = {
+    "Urban (Clean Roofs)": {"soiling": 1, "shading": 2},
+    "Rural (Moderate Soiling)": {"soiling": 3, "shading": 3},
+    "Coastal (High Salt Exposure)": {"soiling": 4, "shading": 3},
+    "Desert (Heavy Dust)": {"soiling": 6, "shading": 2},
+    "Forested/Shady": {"soiling": 2, "shading": 10}
+}
+
+preset = region_presets[region]
+soiling_loss = st.sidebar.slider("Soiling Loss (%)", 0, 10, preset["soiling"])
+shading_loss = st.sidebar.slider("Shading Loss (%)", 0, 20, preset["shading"])
+wiring_loss = st.sidebar.slider("Wiring Loss (%)", 0, 5, 2)
+inverter_loss = st.sidebar.slider("Inverter Loss (%)", 0, 5, 2)
+
+# Simulation Trigger
 if st.sidebar.button("Run Simulation"):
     st.info("Fetching weather data from PVGIS...")
     weather_df = fetch_pvgis_tmy(latitude, longitude)
@@ -55,16 +74,16 @@ if st.sidebar.button("Run Simulation"):
             weather_df, latitude, longitude, tilt, azimuth, system_size_kw
         )
 
-        # Apply total losses
+        # Apply losses
         total_loss_pct = (
             soiling_loss + shading_loss + wiring_loss + inverter_loss
         ) / 100.0
         monthly_energy["Energy (kWh)"] *= (1 - total_loss_pct)
 
+        # Output
         st.subheader("📊 Monthly Energy Output")
         st.dataframe(monthly_energy)
 
-        # Plotting
         fig, ax = plt.subplots()
         monthly_energy.plot(kind='bar', legend=False, ax=ax)
         ax.set_ylabel("Energy (kWh)")
@@ -73,7 +92,6 @@ if st.sidebar.button("Run Simulation"):
         st.pyplot(fig)
 
         st.subheader("📁 Export Results")
-
         csv_file = "monthly_energy.csv"
         pdf_file = "monthly_energy.pdf"
 
