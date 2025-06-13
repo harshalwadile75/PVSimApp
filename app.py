@@ -7,16 +7,34 @@ from utils.report import export_to_csv, export_to_pdf
 import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="PVSimApp - Phase 1", layout="centered")
-st.title("🔆 PVSimApp - Basic PV Simulation")
+st.set_page_config(page_title="PVSimApp - Phase 2", layout="centered")
+st.title("🔆 PVSimApp - PV Simulation Tool")
+
+# Load module & inverter data
+modules_df = pd.read_csv("modules.csv")
+inverters_df = pd.read_csv("inverters.csv")
 
 # Sidebar Inputs
 st.sidebar.header("📍 Location & System Settings")
 latitude = st.sidebar.number_input("Latitude", value=40.7128)
 longitude = st.sidebar.number_input("Longitude", value=-74.0060)
-system_size_kw = st.sidebar.number_input("System Size (kW)", value=5.0)
 tilt = st.sidebar.slider("Tilt Angle (°)", min_value=0, max_value=90, value=30)
 azimuth = st.sidebar.slider("Azimuth (°)", min_value=0, max_value=360, value=180)
+
+# Module Picker
+st.sidebar.subheader("⚡ Select PV Module")
+module_choice = st.sidebar.selectbox("Module", modules_df["Model"])
+selected_module = modules_df[modules_df["Model"] == module_choice].iloc[0]
+module_power = selected_module["Power (W)"]
+
+num_modules = st.sidebar.number_input("Modules in Array", min_value=1, value=12)
+system_size_kw = (module_power * num_modules) / 1000
+st.sidebar.markdown(f"**System Size**: {system_size_kw:.2f} kW")
+
+# Inverter Picker
+st.sidebar.subheader("🔌 Select Inverter")
+inverter_choice = st.sidebar.selectbox("Inverter", inverters_df["Model"])
+selected_inverter = inverters_df[inverters_df["Model"] == inverter_choice].iloc[0]
 
 # Loss Inputs
 st.sidebar.header("⚙️ Loss Factors (%)")
