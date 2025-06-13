@@ -38,7 +38,7 @@ marker = folium.Marker(location=default_coords, draggable=True)
 marker.add_to(m)
 map_data = st_folium(m, height=300, returned_objects=["last_clicked"])
 latitude = map_data["last_clicked"]["lat"] if map_data["last_clicked"] else default_coords[0]
-longitude = map_data["last_clicked"]["lng"] if map_data["last_clicked"]["lng"] else default_coords[1]
+longitude = map_data["last_clicked"]["lng"] if map_data["last_clicked"] else default_coords[1]
 st.sidebar.markdown(f"**Latitude**: `{latitude:.4f}`, **Longitude**: `{longitude:.4f}`")
 
 st.sidebar.subheader("📐 Orientation")
@@ -147,17 +147,17 @@ if st.sidebar.button("Run Simulation"):
             with open(pdf_filename, "rb") as f:
                 st.download_button("📥 Download PDF Report", f, file_name=pdf_filename)
 
-if st.sidebar.button("Set Current as BOM B"):
-    st.session_state['bom_b_data'] = {
-        "config": {
-            "Module": module_choice,
-            "Inverter": inverter_choice,
-            "Encapsulant": encapsulant,
-            "System Size (kW)": f"{system_kw:.2f}"
-        },
-        "monthly_df": monthly_df,
-        "deg_rate": deg_rate,
-        "risk_score": risk_score,
-        "risk_label": risk_label
-    }
-    st.success("BOM B saved for comparison in next PDF export.")
+        if st.button("Set Current as BOM B"):
+            st.session_state['bom_b_data'] = {
+                "config": {
+                    "Module": module_choice,
+                    "Inverter": inverter_choice,
+                    "Encapsulant": encapsulant,
+                    "System Size (kW)": f"{system_kw:.2f}"
+                },
+                "monthly_df": monthly_df,
+                "deg_rate": deg_rate,
+                "risk_score": risk_score,
+                "risk_label": risk_label
+            }
+            st.success("BOM B saved for comparison in next PDF export.")
